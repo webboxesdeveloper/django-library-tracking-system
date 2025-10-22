@@ -51,7 +51,7 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
-    @action(defail=False, methods=['get'])
+    @action(detail=False, methods=['get'])
     def top_active(self, request):
         # get top 5 members with the most active loans
         top_members = Member.objects.annotate(
@@ -76,7 +76,7 @@ class LoanViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def extend_due_date(self, request, pk=None):
         loan = self.get_object()
-        additional_days = request.data.get('addional_days')
+        additional_days = int(request.data.get('addional_days'))
 
         # check if loan is overdue
         if loan.due_date < timezone.now().date():
