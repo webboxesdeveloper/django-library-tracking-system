@@ -4,14 +4,16 @@ from .models import Author, Book, Member, Loan
 from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
+from datetime import timedelta
 from .tasks import send_loan_notification
+from django.db.models import Count, Q
 
 class AuthorViewSet(viewsets.ModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.select_related('author').all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -49,6 +51,46 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    @action(defail=False, methods=['get'])
+    def top_active(self, request):
+        # get top 5 members with the most active loans
+        top_members = Member.objects.annotate(
+            active_loans_count=Count('loans', filter=Q(loans__is_returned=False))
+        ).order_by('-active_loans_count')[:5]
+
+        result = []
+        for member in top_members:
+            result.append({
+                'id': member.id,
+                'username': member.user.username,
+                'email': member.user.email,
+                'active_loans': member.active_loans_count,
+            })
+
+        return Response(result)
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        loan = self.get_object()
+        additional_days = request.data.get('addional_days')
+
+        # check if loan is overdue
+        if loan.due_date < timezone.now().date():
+            return Response(
+                {'error': 'Cannot extend overdue loan'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # check if additional days is positive
+        if not isinstance(additional_days, int) or additional_days <= 0:
+            return Response(
+                {'error': 'additional days must be a positive integer'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # extend due date
+        loan.due_date += timedelta(days=additional_days)
+        loan.save()
